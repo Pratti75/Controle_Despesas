@@ -22,12 +22,12 @@ def hash_senha(senha):
 def carregar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
         return {}
-    with open(USUARIOS_FILE, "r") as f:
+    with open(USUARIOS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def salvar_usuarios(usuarios):
-    with open(USUARIOS_FILE, "w") as f:
-        json.dump(usuarios, f, indent=4)
+    with open(USUARIOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(usuarios, f, indent=4, ensure_ascii=False)
 
 def carregar_despesas():
     if not os.path.exists(DESPESAS_FILE):
@@ -38,7 +38,7 @@ def salvar_despesas(df):
     df.to_csv(DESPESAS_FILE, index=False)
 
 # =========================
-# INICIALIZAÇÃO DE SESSÃO
+# SESSÃO
 # =========================
 if "logado" not in st.session_state:
     st.session_state.logado = False
@@ -51,7 +51,6 @@ def tela_acesso():
     st.title("💰 Controle de Despesas")
 
     modo = st.radio("Acesso", ["Entrar", "Solicitar cadastro"])
-
     usuarios = carregar_usuarios()
 
     if modo == "Entrar":
@@ -59,19 +58,23 @@ def tela_acesso():
         senha = st.text_input("Senha", type="password")
 
         if st.button("Entrar"):
-            if email in usuarios:
-                user = usuarios[email]
-                if not user["aprovado"]:
-                    st.error("Cadastro ainda não aprovado pelo administrador.")
-                elif user["senha"] == hash_senha(senha):
-                    st.session_state.logado = True
-                    st.session_state.email = email
-                    st.rerun()
-
-                else:
-                    st.error("Senha incorreta.")
-            else:
+            if email not in usuarios:
                 st.error("Usuário não encontrado.")
+                return
+
+            user = usuarios[email]
+
+            if not user["aprovado"]:
+                st.error("Cadastro ainda não aprovado pelo administrador.")
+                return
+
+            if user["senha"] != hash_senha(senha):
+                st.error("Senha incorreta.")
+                return
+
+            st.session_state.logado = True
+            st.session_state.email = email
+            st.rerun()
 
     else:
         nome = st.text_input("Usuário desejado")
@@ -94,7 +97,7 @@ def tela_acesso():
             salvar_usuarios(usuarios)
 
             if aprovado:
-                st.success("Administrador criado com sucesso. Faça login.")
+                st.success("Administrador criado. Faça login.")
             else:
                 st.info("Cadastro enviado para aprovação do administrador.")
 
@@ -106,6 +109,11 @@ def painel():
     usuarios = carregar_usuarios()
 
     st.sidebar.success(f"Logado como: {email}")
+
+    if st.sidebar.button("Sair"):
+        st.session_state.logado = False
+        st.session_state.email = None
+        st.rerun()
 
     # =========================
     # PAINEL ADMIN
@@ -125,7 +133,6 @@ def painel():
                     usuarios[e]["aprovado"] = True
                     salvar_usuarios(usuarios)
                     st.rerun()
-
         else:
             st.success("Nenhum cadastro pendente.")
 
@@ -140,46 +147,53 @@ def painel():
     valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
 
     if st.button("Adicionar despesa"):
+        if descricao.strip() == "":
+            st.warning("Informe a descrição.")
+            return
+
         df = carregar_despesas()
+
         nova = {
             "email": email,
             "descricao": descricao,
             "valor": valor,
             "data": datetime.now().strftime("%Y-%m-%d")
         }
+
         df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
         salvar_despesas(df)
         st.success("Despesa adicionada.")
         st.rerun()
 
-
     df = carregar_despesas()
     df_user = df[df["email"] == email]
 
     if not df_user.empty:
-    st.subheader("📋 Despesas registradas")
-    st.dataframe(df_user)
+        st.subheader("📋 Despesas registradas")
+        st.dataframe(df_user)
 
-    total = df_user["valor"].sum()
-    st.metric("💰 Total gasto", f"R$ {total:.2f}")
+        total = df_user["valor"].sum()
+        st.metric("💰 Total gasto", f"R$ {total:.2f}")
 
-    # =========================
-    # DASHBOARD MENSAL
-    # =========================
-    st.subheader("📊 Dashboard Mensal")
+        # =========================
+        # DASHBOARD MENSAL
+        # =========================
+        st.subheader("📊 Dashboard Mensal")
 
-    df_user["data"] = pd.to_datetime(df_user["data"])
-    df_user["mes"] = df_user["data"].dt.to_period("M").astype(str)
+        df_user = df_user.copy()
+        df_user["data"] = pd.to_datetime(df_user["data"])
+        df_user["mes"] = df_user["data"].dt.to_period("M").astype(str)
 
-    resumo = (
-        df_user.groupby("mes")["valor"]
-        .sum()
-        .reset_index()
-        .rename(columns={"valor": "Total Mensal"})
-    )
+        resumo = (
+            df_user.groupby("mes")["valor"]
+            .sum()
+            .reset_index()
+            .rename(columns={"valor": "Total Mensal"})
+        )
 
-    st.bar_chart(resumo.set_index("mes"))
-
+        st.bar_chart(resumo.set_index("mes"))
+    else:
+        st.info("Nenhuma despesa registrada ainda.")
 
 # =========================
 # EXECUÇÃO
