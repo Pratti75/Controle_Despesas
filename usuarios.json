@@ -1,1 +1,7 @@
-{}
+{
+  "engepratti@gmail.com": {
+    "nome": "Alex Pratti",
+    "senha": "hash_aqui",
+    "aprovado": true
+  }
+}
