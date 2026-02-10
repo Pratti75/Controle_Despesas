@@ -109,7 +109,8 @@ def app():
                 novos = [d for d in load_data() if d["id"] != id_excluir]
                 save_data(novos)
                 st.warning("Despesa removida")
-                st.experimental_rerun()
+                st.rerun()
+
 
             st.subheader("Dashboard mensal")
 
