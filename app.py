@@ -1,217 +1,168 @@
 import streamlit as st
 import pandas as pd
 import json
-from uuid import uuid4
-from datetime import datetime
-import plotly.express as px
-import hashlib
-import io
 import os
+import hashlib
+from datetime import datetime
 
 # =========================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DO ADMIN
 # =========================
-ADMIN_EMAIL = "engepratti@gmail.com"  # TROQUE PARA O SEU E-MAIL
+ADMIN_EMAIL = "engepratti@gmail.com"
 
-st.set_page_config(
-    page_title="Controle de Despesas",
-    page_icon="💰",
-    layout="centered"
-)
-
-DATA_FILE = "despesas.json"
-USERS_FILE = "usuarios.json"
-PENDING_FILE = "cadastros_pendentes.json"
-SESSION_FILE = "session.json"
+USUARIOS_FILE = "usuarios.json"
+DESPESAS_FILE = "despesas.csv"
 
 # =========================
-# FUNÇÕES BASE
+# FUNÇÕES AUXILIARES
 # =========================
-def load_json(file, default):
-    if not os.path.exists(file):
-        return default
-    with open(file, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_json(file, data):
-    with open(file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
-# =========================
-# SESSÃO PERSISTENTE
-# =========================
-session = load_json(SESSION_FILE, {"logado": False, "usuario": None})
+def carregar_usuarios():
+    if not os.path.exists(USUARIOS_FILE):
+        return {}
+    with open(USUARIOS_FILE, "r") as f:
+        return json.load(f)
 
-if "logado" not in st.session_state:
-    st.session_state.logado = session["logado"]
-    st.session_state.usuario = session["usuario"]
+def salvar_usuarios(usuarios):
+    with open(USUARIOS_FILE, "w") as f:
+        json.dump(usuarios, f, indent=4)
 
-def salvar_sessao():
-    save_json(SESSION_FILE, {
-        "logado": st.session_state.logado,
-        "usuario": st.session_state.usuario
-    })
-
-# =========================
-# AUTENTICAÇÃO
-# =========================
-def autenticar(usuario, senha):
-    usuarios = load_json(USERS_FILE, [])
-    return any(
-        u["usuario"] == usuario and u["senha"] == hash_senha(senha)
-        for u in usuarios
-    )
-
-def solicitar_cadastro(usuario, senha, email):
-    pendentes = load_json(PENDING_FILE, [])
-    pendentes.append({
-        "usuario": usuario,
-        "senha": hash_senha(senha),
-        "email": email
-    })
-    save_json(PENDING_FILE, pendentes)
-
-def aprovar_usuario(usuario):
-    pendentes = load_json(PENDING_FILE, [])
-    usuarios = load_json(USERS_FILE, [])
-
-    aprovado = next(p for p in pendentes if p["usuario"] == usuario)
-    usuarios.append(aprovado)
-
-    pendentes = [p for p in pendentes if p["usuario"] != usuario]
-
-    save_json(USERS_FILE, usuarios)
-    save_json(PENDING_FILE, pendentes)
-
-# =========================
-# DESPESAS
-# =========================
 def carregar_despesas():
-    return [
-        d for d in load_json(DATA_FILE, [])
-        if d["usuario"] == st.session_state.usuario
-    ]
+    if not os.path.exists(DESPESAS_FILE):
+        return pd.DataFrame(columns=["email", "descricao", "valor", "data"])
+    return pd.read_csv(DESPESAS_FILE)
 
-def salvar_despesas(lista):
-    todas = load_json(DATA_FILE, [])
-    todas = [d for d in todas if d["usuario"] != st.session_state.usuario]
-    todas.extend(lista)
-    save_json(DATA_FILE, todas)
+def salvar_despesas(df):
+    df.to_csv(DESPESAS_FILE, index=False)
 
 # =========================
-# LOGIN / CADASTRO
+# INICIALIZAÇÃO DE SESSÃO
 # =========================
-def tela_login():
+if "logado" not in st.session_state:
+    st.session_state.logado = False
+    st.session_state.email = None
+
+# =========================
+# TELA DE LOGIN / CADASTRO
+# =========================
+def tela_acesso():
     st.title("💰 Controle de Despesas")
 
-    aba = st.radio("Acesso", ["Entrar", "Solicitar cadastro"], horizontal=True)
+    modo = st.radio("Acesso", ["Entrar", "Solicitar cadastro"])
 
-    if aba == "Entrar":
-        usuario = st.text_input("Usuário")
+    usuarios = carregar_usuarios()
+
+    if modo == "Entrar":
+        email = st.text_input("E-mail")
         senha = st.text_input("Senha", type="password")
 
         if st.button("Entrar"):
-            if autenticar(usuario, senha):
-                st.session_state.logado = True
-                st.session_state.usuario = usuario
-                salvar_sessao()
-                st.rerun()
+            if email in usuarios:
+                user = usuarios[email]
+                if not user["aprovado"]:
+                    st.error("Cadastro ainda não aprovado pelo administrador.")
+                elif user["senha"] == hash_senha(senha):
+                    st.session_state.logado = True
+                    st.session_state.email = email
+                    st.experimental_rerun()
+                else:
+                    st.error("Senha incorreta.")
             else:
-                st.error("Usuário não aprovado ou senha inválida")
+                st.error("Usuário não encontrado.")
 
     else:
-        usuario = st.text_input("Usuário desejado")
-        senha = st.text_input("Senha", type="password")
+        nome = st.text_input("Usuário desejado")
         email = st.text_input("Seu e-mail")
+        senha = st.text_input("Senha", type="password")
 
         if st.button("Solicitar cadastro"):
-            solicitar_cadastro(usuario, senha, email)
-            st.info("Cadastro enviado para aprovação do administrador")
+            if email in usuarios:
+                st.warning("Este e-mail já está cadastrado.")
+                return
+
+            aprovado = True if email == ADMIN_EMAIL else False
+
+            usuarios[email] = {
+                "nome": nome,
+                "senha": hash_senha(senha),
+                "aprovado": aprovado
+            }
+
+            salvar_usuarios(usuarios)
+
+            if aprovado:
+                st.success("Administrador criado com sucesso. Faça login.")
+            else:
+                st.info("Cadastro enviado para aprovação do administrador.")
 
 # =========================
-# TELA PRINCIPAL
+# PAINEL PRINCIPAL
 # =========================
-def tela_despesas():
-    st.title("📊 Controle de Despesas")
+def painel():
+    email = st.session_state.email
+    usuarios = carregar_usuarios()
 
-    if st.button("Sair"):
-        st.session_state.logado = False
-        st.session_state.usuario = None
-        salvar_sessao()
-        st.rerun()
+    st.sidebar.success(f"Logado como: {email}")
 
-    # -------- ADMIN --------
-    if st.session_state.usuario == ADMIN_EMAIL:
-        st.subheader("👑 Administração")
+    # =========================
+    # PAINEL ADMIN
+    # =========================
+    if email == ADMIN_EMAIL:
+        st.subheader("👑 Painel do Administrador")
 
-        pendentes = load_json(PENDING_FILE, [])
+        pendentes = {
+            e: u for e, u in usuarios.items() if not u["aprovado"]
+        }
 
-        if not pendentes:
-            st.info("Nenhum cadastro pendente")
+        if pendentes:
+            for e, u in pendentes.items():
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"📧 {e} — {u['nome']}")
+                if col2.button("Aprovar", key=e):
+                    usuarios[e]["aprovado"] = True
+                    salvar_usuarios(usuarios)
+                    st.experimental_rerun()
+        else:
+            st.success("Nenhum cadastro pendente.")
 
-        for p in pendentes:
-            col1, col2 = st.columns([3,1])
-            col1.write(f"{p['usuario']} - {p['email']}")
-            if col2.button("Aprovar", key=p["usuario"]):
-                aprovar_usuario(p["usuario"])
-                st.success("Usuário aprovado")
-                st.rerun()
+        st.divider()
 
-    # -------- DESPESAS --------
-    despesas = carregar_despesas()
-    df = pd.DataFrame(despesas)
+    # =========================
+    # CONTROLE DE DESPESAS
+    # =========================
+    st.subheader("📊 Controle de Despesas")
 
-    st.subheader("Adicionar despesa")
-    valor = st.number_input("Valor (R$)", min_value=0.0)
-    categoria = st.text_input("Categoria")
+    descricao = st.text_input("Descrição da despesa")
+    valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
 
-    if st.button("Salvar despesa"):
-        despesas.append({
-            "id": str(uuid4()),
-            "usuario": st.session_state.usuario,
+    if st.button("Adicionar despesa"):
+        df = carregar_despesas()
+        nova = {
+            "email": email,
+            "descricao": descricao,
             "valor": valor,
-            "categoria": categoria,
-            "data": datetime.now().strftime("%Y-%m")
-        })
-        salvar_despesas(despesas)
-        st.rerun()
+            "data": datetime.now().strftime("%Y-%m-%d")
+        }
+        df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
+        salvar_despesas(df)
+        st.success("Despesa adicionada.")
+        st.experimental_rerun()
 
-    if df.empty:
-        st.info("Nenhuma despesa cadastrada")
-        return
+    df = carregar_despesas()
+    df_user = df[df["email"] == email]
 
-    st.dataframe(df[["valor", "categoria", "data"]])
+    if not df_user.empty:
+        st.dataframe(df_user)
 
-    st.subheader("Excluir despesa")
-    id_excluir = st.selectbox("Selecione", df["id"].tolist())
-
-    if st.button("Excluir"):
-        despesas = [d for d in despesas if d["id"] != id_excluir]
-        salvar_despesas(despesas)
-        st.rerun()
-
-    st.metric("Total gasto", f"R$ {df['valor'].sum():.2f}")
-
-    fig = px.bar(df, x="categoria", y="valor", color="categoria")
-    st.plotly_chart(fig, use_container_width=True)
-
-    buffer = io.BytesIO()
-    df.to_excel(buffer, index=False)
-    buffer.seek(0)
-
-    st.download_button(
-        "📥 Exportar Excel",
-        data=buffer,
-        file_name="despesas.xlsx"
-    )
+        total = df_user["valor"].sum()
+        st.metric("Total gasto", f"R$ {total:.2f}")
 
 # =========================
-# FLUXO
+# EXECUÇÃO
 # =========================
-if st.session_state.logado:
-    tela_despesas()
+if not st.session_state.logado:
+    tela_acesso()
 else:
-    tela_login()
+    painel()
