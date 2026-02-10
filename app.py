@@ -1,202 +1,146 @@
 import streamlit as st
-import pandas as pd
 import json
 import os
-import hashlib
-from datetime import datetime
 
-import streamlit as st
-
-ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
-
-
-# =========================
+# =============================
 # CONFIGURAÇÃO DA PÁGINA
-# =========================
+# =============================
 st.set_page_config(
     page_title="Controle de Despesas",
     page_icon="💰",
     layout="centered"
 )
 
-# =========================
-# ADMIN FIXO (SECRETS)
-# =========================
-ADMIN_EMAIL = st.secrets.get("ADMIN_EMAIL", "")
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
-
-# =========================
-# ARQUIVOS
-# =========================
 USUARIOS_FILE = "usuarios.json"
-DESPESAS_FILE = "despesas.csv"
 
-# =========================
-# FUNÇÕES AUXILIARES
-# =========================
-def hash_senha(senha: str) -> str:
-    return hashlib.sha256(senha.encode()).hexdigest()
+ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
+# =============================
+# FUNÇÕES DE PERSISTÊNCIA
+# =============================
 def carregar_usuarios():
-    if os.path.exists(USUARIOS_FILE):
-        with open(USUARIOS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    if not os.path.exists(USUARIOS_FILE):
+        return {}
+    with open(USUARIOS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def salvar_usuarios(usuarios):
     with open(USUARIOS_FILE, "w", encoding="utf-8") as f:
         json.dump(usuarios, f, indent=4, ensure_ascii=False)
 
-def garantir_admin():
-    usuarios = carregar_usuarios()
-    if ADMIN_EMAIL and ADMIN_EMAIL not in usuarios:
-        usuarios[ADMIN_EMAIL] = {
-            "nome": "Administrador",
-            "senha": hash_senha(ADMIN_PASSWORD),
-            "aprovado": True
-        }
-        salvar_usuarios(usuarios)
+# =============================
+# AUTENTICAÇÃO
+# =============================
+def autenticar(email, senha, usuarios):
+    # ADMINISTRADOR
+    if email == ADMIN_EMAIL and senha == ADMIN_PASSWORD:
+        return {"tipo": "admin", "aprovado": True}
 
-def carregar_despesas(email):
-    if os.path.exists(DESPESAS_FILE):
-        df = pd.read_csv(DESPESAS_FILE)
-        return df[df["email"] == email]
-    return pd.DataFrame(columns=["email", "descricao", "valor", "data"])
+    # USUÁRIO COMUM
+    if email in usuarios:
+        usuario = usuarios[email]
+        if usuario["senha"] == senha:
+            return {"tipo": "usuario", "aprovado": usuario["aprovado"]}
 
-def salvar_despesa(email, descricao, valor):
-    nova = pd.DataFrame([{
-        "email": email,
-        "descricao": descricao,
-        "valor": valor,
-        "data": datetime.now().strftime("%Y-%m-%d")
-    }])
+    return None
 
-    if os.path.exists(DESPESAS_FILE):
-        df = pd.read_csv(DESPESAS_FILE)
-        df = pd.concat([df, nova], ignore_index=True)
-    else:
-        df = nova
+# =============================
+# TELAS
+# =============================
+def tela_login():
+    st.title("🔐 Login")
 
-    df.to_csv(DESPESAS_FILE, index=False)
+    email = st.text_input("E-mail")
+    senha = st.text_input("Senha", type="password")
 
-def excluir_despesa(index, email):
-    df = pd.read_csv(DESPESAS_FILE)
-    df = df.drop(df[(df.index == index) & (df["email"] == email)].index)
-    df.to_csv(DESPESAS_FILE, index=False)
+    if st.button("Entrar"):
+        usuarios = carregar_usuarios()
+        resultado = autenticar(email, senha, usuarios)
 
-# =========================
-# INICIALIZAÇÃO
-# =========================
-garantir_admin()
+        if resultado is None:
+            st.error("E-mail ou senha inválidos")
 
-if "logado" not in st.session_state:
-    st.session_state.logado = False
-    st.session_state.email = ""
+        elif resultado["tipo"] == "admin":
+            st.session_state.usuario = email
+            st.session_state.tipo = "admin"
+            st.rerun()
 
-# =========================
-# TELA DE LOGIN / CADASTRO
-# =========================
-st.title("💰 Controle de Despesas")
+        elif resultado["aprovado"]:
+            st.session_state.usuario = email
+            st.session_state.tipo = "usuario"
+            st.rerun()
 
-if not st.session_state.logado:
-    modo = st.radio("Acesso", ["Entrar", "Solicitar cadastro"])
-
-    usuarios = carregar_usuarios()
-
-    if modo == "Entrar":
-        email = st.text_input("E-mail")
-        senha = st.text_input("Senha", type="password")
-
-        if st.button("Entrar"):
-            if email in usuarios:
-                if usuarios[email]["senha"] == hash_senha(senha):
-                    if usuarios[email]["aprovado"]:
-                        st.session_state.logado = True
-                        st.session_state.email = email
-                        st.experimental_rerun()
-                    else:
-                        st.error("Cadastro ainda não aprovado.")
-                else:
-                    st.error("Senha incorreta.")
-            else:
-                st.error("Usuário não encontrado.")
-
-    else:
-        nome = st.text_input("Nome")
-        email = st.text_input("E-mail")
-        senha = st.text_input("Senha", type="password")
-
-        if st.button("Solicitar cadastro"):
-            if email in usuarios:
-                st.warning("Usuário já cadastrado.")
-            else:
-                usuarios[email] = {
-                    "nome": nome,
-                    "senha": hash_senha(senha),
-                    "aprovado": False
-                }
-                salvar_usuarios(usuarios)
-                st.success("Cadastro enviado para aprovação do administrador.")
-
-    st.stop()
-
-# =========================
-# PAINEL ADMIN
-# =========================
-usuarios = carregar_usuarios()
-
-if st.session_state.email == ADMIN_EMAIL:
-    st.subheader("👑 Painel do Administrador")
-
-    pendentes = {e: u for e, u in usuarios.items() if not u["aprovado"]}
-
-    if pendentes:
-        for email, dados in pendentes.items():
-            col1, col2 = st.columns([3, 1])
-            col1.write(f"📧 {email} | {dados['nome']}")
-            if col2.button("Aprovar", key=email):
-                usuarios[email]["aprovado"] = True
-                salvar_usuarios(usuarios)
-                st.experimental_rerun()
-    else:
-        st.success("Nenhum cadastro pendente.")
+        else:
+            st.warning("Cadastro pendente de aprovação do administrador")
 
     st.divider()
+    tela_cadastro()
 
-# =========================
-# CONTROLE DE DESPESAS
-# =========================
-st.subheader("📊 Controle de Despesas")
+def tela_cadastro():
+    st.subheader("📝 Cadastro de Usuário")
 
-descricao = st.text_input("Descrição da despesa")
-valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+    email = st.text_input("Novo e-mail", key="cad_email")
+    senha = st.text_input("Nova senha", type="password", key="cad_senha")
 
-if st.button("Adicionar despesa"):
-    if descricao and valor > 0:
-        salvar_despesa(st.session_state.email, descricao, valor)
-        st.success("Despesa registrada.")
+    if st.button("Cadastrar"):
+        if email == ADMIN_EMAIL:
+            st.error("Este e-mail é exclusivo do administrador")
+            return
+
+        usuarios = carregar_usuarios()
+
+        if email in usuarios:
+            st.error("Usuário já cadastrado")
+            return
+
+        usuarios[email] = {
+            "senha": senha,
+            "aprovado": False
+        }
+
+        salvar_usuarios(usuarios)
+        st.success("Cadastro realizado. Aguarde aprovação do administrador.")
+
+def painel_admin():
+    st.title("👑 Painel do Administrador")
+
+    usuarios = carregar_usuarios()
+
+    if not usuarios:
+        st.info("Nenhum usuário cadastrado.")
+        return
+
+    for email, dados in usuarios.items():
+        col1, col2, col3 = st.columns([4, 2, 2])
+
+        col1.write(email)
+        col2.write("✅ Aprovado" if dados["aprovado"] else "⏳ Pendente")
+
+        if not dados["aprovado"]:
+            if col3.button("Aprovar", key=email):
+                usuarios[email]["aprovado"] = True
+                salvar_usuarios(usuarios)
+                st.success(f"{email} aprovado com sucesso")
+                st.rerun()
+
+def painel_usuario():
+    st.title("📊 Controle de Despesas")
+    st.write(f"Usuário logado: **{st.session_state.usuario}**")
+    st.info("Dashboard de despesas será exibido aqui.")
+
+# =============================
+# CONTROLE DE SESSÃO
+# =============================
+if "usuario" not in st.session_state:
+    tela_login()
+
+else:
+    if st.sidebar.button("🚪 Sair"):
+        st.session_state.clear()
+        st.rerun()
+
+    if st.session_state.tipo == "admin":
+        painel_admin()
     else:
-        st.warning("Preencha descrição e valor.")
-
-df = carregar_despesas(st.session_state.email)
-
-if not df.empty:
-    st.subheader("📋 Despesas registradas")
-
-    for i, row in df.iterrows():
-        col1, col2, col3 = st.columns([4, 2, 1])
-        col1.write(row["descricao"])
-        col2.write(f"R$ {row['valor']:.2f}")
-        if col3.button("❌", key=f"del_{i}"):
-            excluir_despesa(i, st.session_state.email)
-            st.experimental_rerun()
-
-    st.subheader("📈 Dashboard")
-    df["mes"] = pd.to_datetime(df["data"]).dt.to_period("M").astype(str)
-    resumo = df.groupby("mes")["valor"].sum()
-    st.bar_chart(resumo)
-
-if st.button("Sair"):
-    st.session_state.logado = False
-    st.experimental_rerun()
+        painel_usuario()
