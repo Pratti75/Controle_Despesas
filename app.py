@@ -38,7 +38,7 @@ def salvar_despesas(df):
     df.to_csv(DESPESAS_FILE, index=False)
 
 # =========================
-# SESSÃO
+# CONTROLE DE SESSÃO
 # =========================
 if "logado" not in st.session_state:
     st.session_state.logado = False
@@ -62,13 +62,11 @@ def tela_acesso():
                 st.error("Usuário não encontrado.")
                 return
 
-            user = usuarios[email]
-
-            if not user["aprovado"]:
-                st.error("Cadastro ainda não aprovado pelo administrador.")
+            if not usuarios[email]["aprovado"]:
+                st.error("Cadastro ainda não aprovado.")
                 return
 
-            if user["senha"] != hash_senha(senha):
+            if usuarios[email]["senha"] != hash_senha(senha):
                 st.error("Senha incorreta.")
                 return
 
@@ -83,10 +81,10 @@ def tela_acesso():
 
         if st.button("Solicitar cadastro"):
             if email in usuarios:
-                st.warning("Este e-mail já está cadastrado.")
+                st.warning("E-mail já cadastrado.")
                 return
 
-            aprovado = True if email == ADMIN_EMAIL else False
+            aprovado = email == ADMIN_EMAIL
 
             usuarios[email] = {
                 "nome": nome,
@@ -99,7 +97,7 @@ def tela_acesso():
             if aprovado:
                 st.success("Administrador criado. Faça login.")
             else:
-                st.info("Cadastro enviado para aprovação do administrador.")
+                st.info("Cadastro enviado para aprovação.")
 
 # =========================
 # PAINEL PRINCIPAL
@@ -121,15 +119,13 @@ def painel():
     if email == ADMIN_EMAIL:
         st.subheader("👑 Painel do Administrador")
 
-        pendentes = {
-            e: u for e, u in usuarios.items() if not u["aprovado"]
-        }
+        pendentes = {e: u for e, u in usuarios.items() if not u["aprovado"]}
 
         if pendentes:
             for e, u in pendentes.items():
                 col1, col2 = st.columns([3, 1])
                 col1.write(f"📧 {e} — {u['nome']}")
-                if col2.button("Aprovar", key=e):
+                if col2.button("Aprovar", key=f"aprovar_{e}"):
                     usuarios[e]["aprovado"] = True
                     salvar_usuarios(usuarios)
                     st.rerun()
@@ -139,15 +135,15 @@ def painel():
         st.divider()
 
     # =========================
-    # CONTROLE DE DESPESAS
+    # REGISTRO DE DESPESAS
     # =========================
-    st.subheader("📊 Controle de Despesas")
+    st.subheader("➕ Nova Despesa")
 
-    descricao = st.text_input("Descrição da despesa")
+    descricao = st.text_input("Descrição")
     valor = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
 
     if st.button("Adicionar despesa"):
-        if descricao.strip() == "":
+        if not descricao.strip():
             st.warning("Informe a descrição.")
             return
 
@@ -165,12 +161,26 @@ def painel():
         st.success("Despesa adicionada.")
         st.rerun()
 
+    # =========================
+    # LISTAGEM + EXCLUSÃO
+    # =========================
     df = carregar_despesas()
-    df_user = df[df["email"] == email]
+    df_user = df[df["email"] == email].reset_index(drop=True)
 
     if not df_user.empty:
         st.subheader("📋 Despesas registradas")
-        st.dataframe(df_user)
+
+        for i, row in df_user.iterrows():
+            col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+
+            col1.write(row["descricao"])
+            col2.write(f"R$ {row['valor']:.2f}")
+            col3.write(row["data"])
+
+            if col4.button("🗑", key=f"del_{i}"):
+                df.drop(df_user.index[i], inplace=True)
+                salvar_despesas(df)
+                st.rerun()
 
         total = df_user["valor"].sum()
         st.metric("💰 Total gasto", f"R$ {total:.2f}")
@@ -180,20 +190,15 @@ def painel():
         # =========================
         st.subheader("📊 Dashboard Mensal")
 
-        df_user = df_user.copy()
         df_user["data"] = pd.to_datetime(df_user["data"])
         df_user["mes"] = df_user["data"].dt.to_period("M").astype(str)
 
-        resumo = (
-            df_user.groupby("mes")["valor"]
-            .sum()
-            .reset_index()
-            .rename(columns={"valor": "Total Mensal"})
-        )
+        resumo = df_user.groupby("mes")["valor"].sum().reset_index()
+        resumo.columns = ["Mês", "Total"]
 
-        st.bar_chart(resumo.set_index("mes"))
+        st.bar_chart(resumo.set_index("Mês"))
     else:
-        st.info("Nenhuma despesa registrada ainda.")
+        st.info("Nenhuma despesa registrada.")
 
 # =========================
 # EXECUÇÃO
