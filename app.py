@@ -136,7 +136,7 @@ def app():
             )
             st.plotly_chart(fig2, use_container_width=True)
 
-            import io
+          
 
 buffer = io.BytesIO()
 df.to_excel(buffer, index=False)
