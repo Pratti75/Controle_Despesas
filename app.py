@@ -11,7 +11,7 @@ import os
 # =========================
 # CONFIGURAÇÃO
 # =========================
-ADMIN_EMAIL = "admin@email.com"  # TROQUE PARA O SEU E-MAIL
+ADMIN_EMAIL = "engepratti@gmail.com"  # TROQUE PARA O SEU E-MAIL
 
 st.set_page_config(
     page_title="Controle de Despesas",
