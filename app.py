@@ -66,7 +66,8 @@ def tela_acesso():
                 elif user["senha"] == hash_senha(senha):
                     st.session_state.logado = True
                     st.session_state.email = email
-                    st.experimental_rerun()
+                    st.rerun()
+
                 else:
                     st.error("Senha incorreta.")
             else:
@@ -123,7 +124,8 @@ def painel():
                 if col2.button("Aprovar", key=e):
                     usuarios[e]["aprovado"] = True
                     salvar_usuarios(usuarios)
-                    st.experimental_rerun()
+                    st.rerun()
+
         else:
             st.success("Nenhum cadastro pendente.")
 
@@ -148,7 +150,8 @@ def painel():
         df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
         salvar_despesas(df)
         st.success("Despesa adicionada.")
-        st.experimental_rerun()
+        st.rerun()
+
 
     df = carregar_despesas()
     df_user = df[df["email"] == email]
