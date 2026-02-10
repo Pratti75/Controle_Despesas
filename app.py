@@ -157,10 +157,29 @@ def painel():
     df_user = df[df["email"] == email]
 
     if not df_user.empty:
-        st.dataframe(df_user)
+    st.subheader("📋 Despesas registradas")
+    st.dataframe(df_user)
 
-        total = df_user["valor"].sum()
-        st.metric("Total gasto", f"R$ {total:.2f}")
+    total = df_user["valor"].sum()
+    st.metric("💰 Total gasto", f"R$ {total:.2f}")
+
+    # =========================
+    # DASHBOARD MENSAL
+    # =========================
+    st.subheader("📊 Dashboard Mensal")
+
+    df_user["data"] = pd.to_datetime(df_user["data"])
+    df_user["mes"] = df_user["data"].dt.to_period("M").astype(str)
+
+    resumo = (
+        df_user.groupby("mes")["valor"]
+        .sum()
+        .reset_index()
+        .rename(columns={"valor": "Total Mensal"})
+    )
+
+    st.bar_chart(resumo.set_index("mes"))
+
 
 # =========================
 # EXECUÇÃO
