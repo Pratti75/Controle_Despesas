@@ -5,6 +5,8 @@ from uuid import uuid4
 from datetime import datetime
 import plotly.express as px
 import hashlib
+import io
+
 
 ARQ_DADOS = "despesas.json"
 ARQ_USERS = "usuarios.json"
