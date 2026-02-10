@@ -134,11 +134,19 @@ def app():
             )
             st.plotly_chart(fig2, use_container_width=True)
 
-            st.download_button(
-                "Exportar despesas para Excel",
-                df.to_excel(index=False),
-                file_name="despesas.xlsx"
-            )
+            import io
+
+buffer = io.BytesIO()
+df.to_excel(buffer, index=False)
+buffer.seek(0)
+
+st.download_button(
+    label="Exportar despesas para Excel",
+    data=buffer,
+    file_name="despesas.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
 
 # ---------------- EXECUÇÃO ----------------
 st.sidebar.title("Acesso")
