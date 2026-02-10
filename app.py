@@ -5,6 +5,12 @@ import os
 import hashlib
 from datetime import datetime
 
+import streamlit as st
+
+ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+
+
 # =========================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================
