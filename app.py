@@ -11,14 +11,17 @@ import os
 # =========================
 # CONFIGURAÇÃO
 # =========================
+ADMIN_EMAIL = "admin@email.com"  # TROQUE PARA O SEU E-MAIL
+
 st.set_page_config(
     page_title="Controle de Despesas",
-    page_icon="icon.png",
+    page_icon="💰",
     layout="centered"
 )
 
 DATA_FILE = "despesas.json"
 USERS_FILE = "usuarios.json"
+PENDING_FILE = "cadastros_pendentes.json"
 SESSION_FILE = "session.json"
 
 # =========================
@@ -62,16 +65,26 @@ def autenticar(usuario, senha):
         for u in usuarios
     )
 
-def cadastrar_usuario(usuario, senha):
-    usuarios = load_json(USERS_FILE, [])
-    if any(u["usuario"] == usuario for u in usuarios):
-        return False
-    usuarios.append({
+def solicitar_cadastro(usuario, senha, email):
+    pendentes = load_json(PENDING_FILE, [])
+    pendentes.append({
         "usuario": usuario,
-        "senha": hash_senha(senha)
+        "senha": hash_senha(senha),
+        "email": email
     })
+    save_json(PENDING_FILE, pendentes)
+
+def aprovar_usuario(usuario):
+    pendentes = load_json(PENDING_FILE, [])
+    usuarios = load_json(USERS_FILE, [])
+
+    aprovado = next(p for p in pendentes if p["usuario"] == usuario)
+    usuarios.append(aprovado)
+
+    pendentes = [p for p in pendentes if p["usuario"] != usuario]
+
     save_json(USERS_FILE, usuarios)
-    return True
+    save_json(PENDING_FILE, pendentes)
 
 # =========================
 # DESPESAS
@@ -89,12 +102,12 @@ def salvar_despesas(lista):
     save_json(DATA_FILE, todas)
 
 # =========================
-# TELA LOGIN
+# LOGIN / CADASTRO
 # =========================
 def tela_login():
     st.title("💰 Controle de Despesas")
 
-    aba = st.radio("Acesso", ["Entrar", "Cadastrar"], horizontal=True)
+    aba = st.radio("Acesso", ["Entrar", "Solicitar cadastro"], horizontal=True)
 
     if aba == "Entrar":
         usuario = st.text_input("Usuário")
@@ -107,17 +120,16 @@ def tela_login():
                 salvar_sessao()
                 st.rerun()
             else:
-                st.error("Usuário ou senha inválidos")
+                st.error("Usuário não aprovado ou senha inválida")
 
     else:
-        usuario = st.text_input("Novo usuário")
-        senha = st.text_input("Nova senha", type="password")
+        usuario = st.text_input("Usuário desejado")
+        senha = st.text_input("Senha", type="password")
+        email = st.text_input("Seu e-mail")
 
-        if st.button("Cadastrar"):
-            if cadastrar_usuario(usuario, senha):
-                st.success("Usuário cadastrado com sucesso")
-            else:
-                st.error("Usuário já existe")
+        if st.button("Solicitar cadastro"):
+            solicitar_cadastro(usuario, senha, email)
+            st.info("Cadastro enviado para aprovação do administrador")
 
 # =========================
 # TELA PRINCIPAL
@@ -131,13 +143,30 @@ def tela_despesas():
         salvar_sessao()
         st.rerun()
 
+    # -------- ADMIN --------
+    if st.session_state.usuario == ADMIN_EMAIL:
+        st.subheader("👑 Administração")
+
+        pendentes = load_json(PENDING_FILE, [])
+
+        if not pendentes:
+            st.info("Nenhum cadastro pendente")
+
+        for p in pendentes:
+            col1, col2 = st.columns([3,1])
+            col1.write(f"{p['usuario']} - {p['email']}")
+            if col2.button("Aprovar", key=p["usuario"]):
+                aprovar_usuario(p["usuario"])
+                st.success("Usuário aprovado")
+                st.rerun()
+
+    # -------- DESPESAS --------
     despesas = carregar_despesas()
     df = pd.DataFrame(despesas)
 
     st.subheader("Adicionar despesa")
-    col1, col2 = st.columns(2)
-    valor = col1.number_input("Valor (R$)", min_value=0.0, step=1.0)
-    categoria = col2.text_input("Categoria")
+    valor = st.number_input("Valor (R$)", min_value=0.0)
+    categoria = st.text_input("Categoria")
 
     if st.button("Salvar despesa"):
         despesas.append({
@@ -148,15 +177,13 @@ def tela_despesas():
             "data": datetime.now().strftime("%Y-%m")
         })
         salvar_despesas(despesas)
-        st.success("Despesa salva")
         st.rerun()
 
     if df.empty:
         st.info("Nenhuma despesa cadastrada")
         return
 
-    st.subheader("Despesas")
-    st.dataframe(df[["valor", "categoria", "data"]], use_container_width=True)
+    st.dataframe(df[["valor", "categoria", "data"]])
 
     st.subheader("Excluir despesa")
     id_excluir = st.selectbox("Selecione", df["id"].tolist())
@@ -164,10 +191,8 @@ def tela_despesas():
     if st.button("Excluir"):
         despesas = [d for d in despesas if d["id"] != id_excluir]
         salvar_despesas(despesas)
-        st.success("Despesa removida")
         st.rerun()
 
-    st.subheader("Resumo mensal")
     st.metric("Total gasto", f"R$ {df['valor'].sum():.2f}")
 
     fig = px.bar(df, x="categoria", y="valor", color="categoria")
@@ -180,8 +205,7 @@ def tela_despesas():
     st.download_button(
         "📥 Exportar Excel",
         data=buffer,
-        file_name="despesas.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        file_name="despesas.xlsx"
     )
 
 # =========================
