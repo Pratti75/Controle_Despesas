@@ -6,150 +6,195 @@ from datetime import datetime
 import plotly.express as px
 import hashlib
 import io
+import os
 
-ARQ_DADOS = "despesas.json"
-ARQ_USERS = "usuarios.json"
+# =========================
+# CONFIGURAÇÃO INICIAL
+# =========================
+st.set_page_config(
+    page_title="Controle de Despesas",
+    page_icon="💰",
+    layout="centered"
+)
 
-# ================= SEGURANÇA =================
+DATA_FILE = "despesas.json"
+USERS_FILE = "usuarios.json"
+
+# =========================
+# ESTADO DE SESSÃO
+# =========================
+if "logado" not in st.session_state:
+    st.session_state.logado = False
+
+if "usuario" not in st.session_state:
+    st.session_state.usuario = None
+
+# =========================
+# FUNÇÕES AUXILIARES
+# =========================
+def carregar_json(arquivo):
+    if not os.path.exists(arquivo):
+        return []
+    with open(arquivo, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def salvar_json(arquivo, dados):
+    with open(arquivo, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
+
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
-# ================= USUÁRIOS =================
-def load_users():
-    try:
-        with open(ARQ_USERS, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+def autenticar(usuario, senha):
+    usuarios = carregar_json(USERS_FILE)
+    senha_hash = hash_senha(senha)
+    return any(u["usuario"] == usuario and u["senha"] == senha_hash for u in usuarios)
 
-def save_users(users):
-    with open(ARQ_USERS, "w") as f:
-        json.dump(users, f, indent=4)
+def cadastrar_usuario(usuario, senha):
+    usuarios = carregar_json(USERS_FILE)
+    if any(u["usuario"] == usuario for u in usuarios):
+        return False
+    usuarios.append({
+        "usuario": usuario,
+        "senha": hash_senha(senha)
+    })
+    salvar_json(USERS_FILE, usuarios)
+    return True
 
-# ================= DESPESAS =================
-def load_data():
-    try:
-        with open(ARQ_DADOS, "r") as f:
-            return json.load(f)
-    except:
-        return []
+def carregar_despesas():
+    despesas = carregar_json(DATA_FILE)
+    return [d for d in despesas if d["usuario"] == st.session_state.usuario]
 
-def save_data(data):
-    with open(ARQ_DADOS, "w") as f:
-        json.dump(data, f, indent=4)
+def salvar_despesas(lista):
+    todas = carregar_json(DATA_FILE)
+    todas = [d for d in todas if d["usuario"] != st.session_state.usuario]
+    todas.extend(lista)
+    salvar_json(DATA_FILE, todas)
 
-# ================= LOGIN =================
-def login():
-    st.subheader("Login")
-    user = st.text_input("Usuário")
-    senha = st.text_input("Senha", type="password")
+# =========================
+# TELA LOGIN / CADASTRO
+# =========================
+def tela_login():
+    st.title("💰 Controle de Despesas")
 
-    if st.button("Entrar"):
-        users = load_users()
-        if user in users and users[user] == hash_senha(senha):
-            st.session_state.user = user
-            st.success("Login realizado")
-        else:
-            st.error("Usuário ou senha inválidos")
+    opcao = st.radio("Escolha uma opção", ["Entrar", "Cadastrar"], horizontal=True)
 
-# ================= CADASTRO =================
-def cadastro():
-    st.subheader("Cadastro")
-    user = st.text_input("Novo usuário")
-    senha = st.text_input("Nova senha", type="password")
+    if opcao == "Entrar":
+        usuario = st.text_input("Usuário")
+        senha = st.text_input("Senha", type="password")
 
-    if st.button("Cadastrar"):
-        users = load_users()
-        if user in users:
-            st.error("Usuário já existe")
-        else:
-            users[user] = hash_senha(senha)
-            save_users(users)
-            st.success("Usuário cadastrado")
-
-# ================= APP PRINCIPAL =================
-def app():
-    st.title("Controle de Despesas")
-
-    descricao = st.text_input("Descrição")
-    categoria = st.selectbox(
-        "Categoria",
-        ["Alimentação", "Transporte", "Moradia", "Lazer", "Outros"]
-    )
-    valor = st.number_input("Valor", min_value=0.0, step=0.01)
-    data = st.date_input("Data", datetime.today())
-
-    if st.button("Adicionar despesa"):
-        dados = load_data()
-        dados.append({
-            "id": str(uuid4()),
-            "usuario": st.session_state.user,
-            "descricao": descricao,
-            "categoria": categoria,
-            "valor": valor,
-            "data": str(data)
-        })
-        save_data(dados)
-        st.success("Despesa adicionada")
-
-    df = pd.DataFrame(load_data())
-
-    if not df.empty:
-        df = df[df["usuario"] == st.session_state.user]
-
-        if not df.empty:
-            df["data"] = pd.to_datetime(df["data"])
-            df["mes"] = df["data"].dt.to_period("M").astype(str)
-
-            st.subheader("Despesas registradas")
-            st.dataframe(df[["descricao", "categoria", "valor", "data"]])
-
-            id_excluir = st.selectbox("Excluir despesa", df["id"])
-            if st.button("Excluir"):
-                novos = [d for d in load_data() if d["id"] != id_excluir]
-                save_data(novos)
-                st.warning("Despesa removida")
+        if st.button("Entrar"):
+            if autenticar(usuario, senha):
+                st.session_state.logado = True
+                st.session_state.usuario = usuario
                 st.rerun()
+            else:
+                st.error("Usuário ou senha inválidos")
 
-
-            st.subheader("Dashboard mensal")
-
-            total_mes = df.groupby("mes")["valor"].sum().reset_index()
-            st.plotly_chart(
-                px.bar(total_mes, x="mes", y="valor"),
-                use_container_width=True
-            )
-
-            cat_mes = (
-                df.groupby(["mes", "categoria"])["valor"]
-                .sum()
-                .reset_index()
-            )
-            st.plotly_chart(
-                px.pie(cat_mes, values="valor", names="categoria"),
-                use_container_width=True
-            )
-
-            # ===== EXPORTAÇÃO EXCEL (CORRETA) =====
-            buffer = io.BytesIO()
-            df.to_excel(buffer, index=False)
-            buffer.seek(0)
-
-            st.download_button(
-                label="Exportar despesas para Excel",
-                data=buffer,
-                file_name="despesas.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-# ================= EXECUÇÃO =================
-st.sidebar.title("Acesso")
-
-if "user" not in st.session_state:
-    opcao = st.sidebar.radio("Escolha", ["Login", "Cadastro"])
-    if opcao == "Login":
-        login()
     else:
-        cadastro()
-else:
-    app()
+        novo_usuario = st.text_input("Novo usuário")
+        nova_senha = st.text_input("Nova senha", type="password")
+
+        if st.button("Cadastrar"):
+            if cadastrar_usuario(novo_usuario, nova_senha):
+                st.success("Usuário cadastrado com sucesso")
+            else:
+                st.error("Usuário já existe")
+
+# =========================
+# TELA PRINCIPAL
+# =========================
+def tela_despesas():
+    st.title("📊 Controle de Despesas")
+
+    if st.button("Sair"):
+        st.session_state.logado = False
+        st.session_state.usuario = None
+        st.rerun()
+
+    despesas = carregar_despesas()
+
+    df = pd.DataFrame(despesas)
+
+    st.subheader("Adicionar despesa")
+
+    col1, col2 = st.columns(2)
+    valor = col1.number_input("Valor (R$)", min_value=0.0, step=1.0)
+    categoria = col2.text_input("Categoria")
+
+    if st.button("Salvar despesa"):
+        despesas.append({
+            "id": str(uuid4()),
+            "usuario": st.session_state.usuario,
+            "valor": valor,
+            "categoria": categoria,
+            "data": datetime.now().strftime("%Y-%m")
+        })
+        salvar_despesas(despesas)
+        st.success("Despesa salva")
+        st.rerun()
+
+    if df.empty:
+        st.info("Nenhuma despesa cadastrada")
+        return
+
+    st.subheader("Despesas do mês")
+    st.dataframe(df[["valor", "categoria", "data"]], use_container_width=True)
+
+    # =========================
+    # EXCLUSÃO SEGURA
+    # =========================
+    st.subheader("Excluir despesa")
+
+    id_excluir = st.selectbox(
+        "Selecione a despesa",
+        df["id"].tolist()
+    )
+
+    if st.button("Excluir despesa"):
+        despesas = [d for d in despesas if d["id"] != id_excluir]
+        salvar_despesas(despesas)
+        st.success("Despesa removida")
+        st.rerun()
+
+    # =========================
+    # DASHBOARD
+    # =========================
+    st.subheader("Resumo mensal")
+
+    total = df["valor"].sum()
+    st.metric("Total gasto", f"R$ {total:.2f}")
+
+    fig = px.bar(
+        df,
+        x="categoria",
+        y="valor",
+        title="Gastos por categoria",
+        color="categoria"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # =========================
+    # EXPORTAR EXCEL
+    # =========================
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False)
+    buffer.seek(0)
+
+    st.download_button(
+        "📥 Exportar para Excel",
+        data=buffer,
+        file_name="despesas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+# =========================
+# CONTROLE DE FLUXO
+# =========================
+def app():
+    if not st.session_state.logado:
+        tela_login()
+    else:
+        tela_despesas()
+
+app()
