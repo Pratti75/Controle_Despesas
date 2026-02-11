@@ -13,8 +13,19 @@ st.set_page_config(
 
 USUARIOS_FILE = "usuarios.json"
 
-ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+# =============================
+# LEITURA SEGURA DOS SECRETS
+# =============================
+try:
+    ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
+    ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+except KeyError:
+    st.error(
+        "❌ Secrets não configurados.\n\n"
+        "Configure ADMIN_EMAIL e ADMIN_PASSWORD em:\n"
+        "Streamlit Cloud → Manage app → Settings → Secrets"
+    )
+    st.stop()
 
 # =============================
 # FUNÇÕES DE PERSISTÊNCIA
@@ -33,11 +44,9 @@ def salvar_usuarios(usuarios):
 # AUTENTICAÇÃO
 # =============================
 def autenticar(email, senha, usuarios):
-    # ADMINISTRADOR
     if email == ADMIN_EMAIL and senha == ADMIN_PASSWORD:
         return {"tipo": "admin", "aprovado": True}
 
-    # USUÁRIO COMUM
     if email in usuarios:
         usuario = usuarios[email]
         if usuario["senha"] == senha:
@@ -78,7 +87,7 @@ def tela_login():
     tela_cadastro()
 
 def tela_cadastro():
-    st.subheader("📝 Cadastro de Usuário")
+    st.subheader("📝 Cadastro")
 
     email = st.text_input("Novo e-mail", key="cad_email")
     senha = st.text_input("Nova senha", type="password", key="cad_senha")
@@ -100,7 +109,7 @@ def tela_cadastro():
         }
 
         salvar_usuarios(usuarios)
-        st.success("Cadastro realizado. Aguarde aprovação do administrador.")
+        st.success("Cadastro realizado. Aguarde aprovação.")
 
 def painel_admin():
     st.title("👑 Painel do Administrador")
@@ -113,7 +122,6 @@ def painel_admin():
 
     for email, dados in usuarios.items():
         col1, col2, col3 = st.columns([4, 2, 2])
-
         col1.write(email)
         col2.write("✅ Aprovado" if dados["aprovado"] else "⏳ Pendente")
 
@@ -121,20 +129,19 @@ def painel_admin():
             if col3.button("Aprovar", key=email):
                 usuarios[email]["aprovado"] = True
                 salvar_usuarios(usuarios)
-                st.success(f"{email} aprovado com sucesso")
+                st.success(f"{email} aprovado")
                 st.rerun()
 
 def painel_usuario():
     st.title("📊 Controle de Despesas")
     st.write(f"Usuário logado: **{st.session_state.usuario}**")
-    st.info("Dashboard de despesas será exibido aqui.")
+    st.info("Dashboard de despesas virá aqui")
 
 # =============================
 # CONTROLE DE SESSÃO
 # =============================
 if "usuario" not in st.session_state:
     tela_login()
-
 else:
     if st.sidebar.button("🚪 Sair"):
         st.session_state.clear()
