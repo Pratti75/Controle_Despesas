@@ -1,1 +1,7 @@
-{}
+{
+  "email@exemplo.com": {
+    "senha": "hash",
+    "aprovado": true,
+    "admin": false
+  }
+}
