@@ -24,7 +24,10 @@ try:
     ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except KeyError:
-    st.error("Configure ADMIN_EMAIL e ADMIN_PASSWORD nos Secrets do Streamlit")
+    st.error(
+        "Secrets não configurados.\n"
+        "Configure ADMIN_EMAIL e ADMIN_PASSWORD no Streamlit Cloud."
+    )
     st.stop()
 
 ADMIN_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
@@ -38,8 +41,13 @@ def hash_senha(senha):
 def carregar_json(arquivo):
     if not os.path.exists(arquivo):
         return {}
-    with open(arquivo, "r", encoding="utf-8") as f:
-        return json.load(f)
+
+    try:
+        with open(arquivo, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+            return dados if isinstance(dados, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
 def salvar_json(arquivo, dados):
     with open(arquivo, "w", encoding="utf-8") as f:
@@ -54,8 +62,8 @@ def autenticar(email, senha, usuarios):
     if email == ADMIN_EMAIL and senha_hash == ADMIN_HASH:
         return {"tipo": "admin"}
 
-    if email in usuarios and usuarios[email]["senha"] == senha_hash:
-        if usuarios[email]["aprovado"]:
+    if email in usuarios:
+        if usuarios[email]["senha"] == senha_hash and usuarios[email]["aprovado"]:
             return {"tipo": "usuario"}
 
     return None
@@ -106,12 +114,16 @@ def tela_cadastro():
         }
 
         salvar_json(USUARIOS_FILE, usuarios)
-        st.success("Cadastro realizado. Aguarde aprovação.")
+        st.success("Cadastro realizado. Aguarde aprovação do administrador.")
 
 def painel_admin():
     st.title("👑 Painel do Administrador")
 
     usuarios = carregar_json(USUARIOS_FILE)
+
+    if not usuarios:
+        st.info("Nenhum usuário cadastrado.")
+        return
 
     for email, dados in usuarios.items():
         col1, col2, col3 = st.columns([4, 2, 2])
@@ -129,10 +141,13 @@ def painel_usuario():
     st.title("📊 Controle de Despesas")
 
     usuario = st.session_state.usuario
+
     despesas = carregar_json(DESPESAS_FILE)
 
+    # 🔒 GARANTIA ABSOLUTA DE ESTRUTURA
     if usuario not in despesas:
         despesas[usuario] = []
+        salvar_json(DESPESAS_FILE, despesas)
 
     with st.form("nova_despesa"):
         descricao = st.text_input("Descrição")
