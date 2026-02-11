@@ -3,6 +3,7 @@ import json
 import os
 import hashlib
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # =============================
 # CONFIGURAÇÕES
@@ -31,7 +32,7 @@ def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 # =============================
-# CARREGAMENTO GLOBAL
+# CARREGAMENTO
 # =============================
 usuarios = carregar_json(USUARIOS_FILE, {})
 despesas = carregar_json(DESPESAS_FILE, {})
@@ -89,7 +90,6 @@ def painel_admin():
 
     for email, dados in list(usuarios.items()):
         col1, col2, col3 = st.columns([4, 2, 2])
-
         col1.write(email)
 
         if not dados["aprovado"]:
@@ -122,6 +122,7 @@ def painel_usuario():
         despesas[usuario] = []
         salvar_json(DESPESAS_FILE, despesas)
 
+    # ➕ Nova despesa
     st.subheader("➕ Adicionar despesa")
     desc = st.text_input("Descrição")
     valor = st.number_input("Valor", min_value=0.0, step=0.01)
@@ -135,10 +136,10 @@ def painel_usuario():
         salvar_json(DESPESAS_FILE, despesas)
         st.rerun()
 
-    st.divider()
+    # 📋 Lista de despesas
     st.subheader("📋 Despesas cadastradas")
-
     total = 0
+
     for d in despesas[usuario]:
         col1, col2, col3 = st.columns([4, 2, 1])
         col1.write(d["descricao"])
@@ -150,29 +151,34 @@ def painel_usuario():
             salvar_json(DESPESAS_FILE, despesas)
             st.rerun()
 
-    st.metric("💵 Total", f"R$ {total:.2f}")
+    st.metric("💵 Total gasto", f"R$ {total:.2f}")
 
-    # ===== DASHBOARD =====
+    # 📊 DASHBOARD
     if despesas[usuario]:
         st.subheader("📊 Dashboard")
 
         df = pd.DataFrame(despesas[usuario])
 
+        # Gráfico de barras
         st.bar_chart(df.set_index("descricao")["valor"])
 
-        st.write("Distribuição das despesas")
-        st.pyplot(
-            df.set_index("descricao")["valor"]
-            .plot.pie(autopct="%1.1f%%", ylabel="")
-            .figure
+        # Gráfico de pizza (MATPLOTLIB)
+        fig, ax = plt.subplots()
+        ax.pie(
+            df["valor"],
+            labels=df["descricao"],
+            autopct="%1.1f%%",
+            startangle=90
         )
+        ax.axis("equal")
+        st.pyplot(fig)
 
     if st.button("🚪 Sair"):
         st.session_state.clear()
         st.rerun()
 
 # =============================
-# CONTROLE GERAL
+# CONTROLE PRINCIPAL
 # =============================
 if "usuario" not in st.session_state:
     tela_login()
