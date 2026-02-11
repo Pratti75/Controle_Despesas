@@ -4,18 +4,18 @@ import os
 import hashlib
 import pandas as pd
 
-# ===============================
-# CONFIGURAÇÃO
-# ===============================
+# =============================
+# CONFIGURAÇÕES
+# =============================
 USUARIOS_FILE = "usuarios.json"
 DESPESAS_FILE = "despesas.json"
 
 ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
-# ===============================
-# FUNÇÕES UTILITÁRIAS
-# ===============================
+# =============================
+# FUNÇÕES BASE
+# =============================
 def carregar_json(arquivo, padrao):
     if not os.path.exists(arquivo):
         with open(arquivo, "w") as f:
@@ -30,70 +30,62 @@ def salvar_json(arquivo, dados):
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
-# ===============================
-# CARREGAMENTO
-# ===============================
+# =============================
+# CARREGAMENTO GLOBAL
+# =============================
 usuarios = carregar_json(USUARIOS_FILE, {})
 despesas = carregar_json(DESPESAS_FILE, {})
 
-# ===============================
-# LOGIN
-# ===============================
-def login():
-    st.title("🔐 Login")
+# =============================
+# LOGIN / CADASTRO
+# =============================
+def tela_login():
+    st.title("🔐 Controle de Despesas")
 
-    email = st.text_input("E-mail")
-    senha = st.text_input("Senha", type="password")
+    tab1, tab2 = st.tabs(["Entrar", "Cadastrar"])
 
-    if st.button("Entrar"):
-        senha_hash = hash_senha(senha)
+    with tab1:
+        email = st.text_input("E-mail")
+        senha = st.text_input("Senha", type="password")
 
-        if email == ADMIN_EMAIL and senha == ADMIN_PASSWORD:
-            st.session_state.usuario = email
-            st.session_state.admin = True
-            st.rerun()
-
-        elif email in usuarios:
-            if not usuarios[email]["aprovado"]:
-                st.error("Usuário ainda não aprovado.")
-            elif usuarios[email]["senha"] == senha_hash:
+        if st.button("Entrar"):
+            if email == ADMIN_EMAIL and senha == ADMIN_PASSWORD:
                 st.session_state.usuario = email
-                st.session_state.admin = False
+                st.session_state.admin = True
                 st.rerun()
+
+            elif email in usuarios:
+                if not usuarios[email]["aprovado"]:
+                    st.error("Usuário não aprovado pelo administrador.")
+                elif usuarios[email]["senha"] == hash_senha(senha):
+                    st.session_state.usuario = email
+                    st.session_state.admin = False
+                    st.rerun()
+                else:
+                    st.error("Senha incorreta.")
             else:
-                st.error("Senha incorreta.")
-        else:
-            st.error("Usuário não encontrado.")
+                st.error("Usuário não encontrado.")
 
-    st.divider()
-    cadastro()
+    with tab2:
+        novo_email = st.text_input("Novo e-mail")
+        nova_senha = st.text_input("Nova senha", type="password")
 
-# ===============================
-# CADASTRO
-# ===============================
-def cadastro():
-    st.subheader("📝 Cadastro")
+        if st.button("Solicitar cadastro"):
+            if novo_email in usuarios:
+                st.warning("Usuário já existe.")
+            else:
+                usuarios[novo_email] = {
+                    "senha": hash_senha(nova_senha),
+                    "aprovado": False
+                }
+                salvar_json(USUARIOS_FILE, usuarios)
+                st.success("Cadastro solicitado. Aguarde aprovação.")
 
-    email = st.text_input("Novo e-mail", key="cad_email")
-    senha = st.text_input("Nova senha", type="password", key="cad_senha")
-
-    if st.button("Cadastrar"):
-        if email in usuarios:
-            st.warning("Usuário já existe.")
-        else:
-            usuarios[email] = {
-                "senha": hash_senha(senha),
-                "aprovado": False,
-                "admin": False
-            }
-            salvar_json(USUARIOS_FILE, usuarios)
-            st.success("Cadastro realizado. Aguarde aprovação.")
-
-# ===============================
+# =============================
 # PAINEL ADMIN
-# ===============================
+# =============================
 def painel_admin():
-    st.title("🛠️ Painel do Administrador")
+    st.title("🛠️ Administração de Usuários")
 
     for email, dados in list(usuarios.items()):
         col1, col2, col3 = st.columns([4, 2, 2])
@@ -109,62 +101,56 @@ def painel_admin():
             col2.success("Aprovado")
 
         if col3.button("❌ Excluir", key=f"ex_{email}"):
-            excluir_usuario(email)
+            usuarios.pop(email)
+            despesas.pop(email, None)
+            salvar_json(USUARIOS_FILE, usuarios)
+            salvar_json(DESPESAS_FILE, despesas)
             st.rerun()
 
     if st.button("🚪 Sair"):
         st.session_state.clear()
         st.rerun()
 
-def excluir_usuario(email):
-    usuarios.pop(email, None)
-    despesas.pop(email, None)
-    salvar_json(USUARIOS_FILE, usuarios)
-    salvar_json(DESPESAS_FILE, despesas)
-
-# ===============================
+# =============================
 # PAINEL USUÁRIO
-# ===============================
+# =============================
 def painel_usuario():
     usuario = st.session_state.usuario
-    st.title("💰 Controle de Despesas")
+    st.title("💰 Minhas Despesas")
 
     if usuario not in despesas:
         despesas[usuario] = []
         salvar_json(DESPESAS_FILE, despesas)
 
-    # ===== Nova Despesa =====
-    st.subheader("➕ Nova despesa")
-    descricao = st.text_input("Descrição")
-    valor = st.number_input("Valor", min_value=0.0, format="%.2f")
+    st.subheader("➕ Adicionar despesa")
+    desc = st.text_input("Descrição")
+    valor = st.number_input("Valor", min_value=0.0, step=0.01)
 
     if st.button("Adicionar"):
-        novo_id = len(despesas[usuario]) + 1
         despesas[usuario].append({
-            "id": novo_id,
-            "descricao": descricao,
+            "id": len(despesas[usuario]) + 1,
+            "descricao": desc,
             "valor": valor
         })
         salvar_json(DESPESAS_FILE, despesas)
-        st.success("Despesa adicionada.")
         st.rerun()
 
-    # ===== Lista + Exclusão =====
-    st.subheader("📋 Minhas despesas")
-    total = 0
+    st.divider()
+    st.subheader("📋 Despesas cadastradas")
 
+    total = 0
     for d in despesas[usuario]:
         col1, col2, col3 = st.columns([4, 2, 1])
         col1.write(d["descricao"])
         col2.write(f"R$ {d['valor']:.2f}")
         total += d["valor"]
 
-        if col3.button("🗑️", key=f"del_{d['id']}"):
+        if col3.button("🗑️", key=f"del_{usuario}_{d['id']}"):
             despesas[usuario] = [x for x in despesas[usuario] if x["id"] != d["id"]]
             salvar_json(DESPESAS_FILE, despesas)
             st.rerun()
 
-    st.metric("💵 Total gasto", f"R$ {total:.2f}")
+    st.metric("💵 Total", f"R$ {total:.2f}")
 
     # ===== DASHBOARD =====
     if despesas[usuario]:
@@ -173,22 +159,23 @@ def painel_usuario():
         df = pd.DataFrame(despesas[usuario])
 
         st.bar_chart(df.set_index("descricao")["valor"])
+
+        st.write("Distribuição das despesas")
         st.pyplot(
-            df.set_index("descricao")["valor"].plot.pie(
-                autopct="%1.1f%%",
-                ylabel=""
-            ).figure
+            df.set_index("descricao")["valor"]
+            .plot.pie(autopct="%1.1f%%", ylabel="")
+            .figure
         )
 
     if st.button("🚪 Sair"):
         st.session_state.clear()
         st.rerun()
 
-# ===============================
-# CONTROLE
-# ===============================
+# =============================
+# CONTROLE GERAL
+# =============================
 if "usuario" not in st.session_state:
-    login()
+    tela_login()
 else:
     if st.session_state.get("admin"):
         painel_admin()
