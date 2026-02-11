@@ -24,10 +24,7 @@ try:
     ADMIN_EMAIL = st.secrets["ADMIN_EMAIL"]
     ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 except KeyError:
-    st.error(
-        "Secrets não configurados.\n"
-        "Configure ADMIN_EMAIL e ADMIN_PASSWORD no Streamlit Cloud."
-    )
+    st.error("Configure ADMIN_EMAIL e ADMIN_PASSWORD nos Secrets do Streamlit Cloud.")
     st.stop()
 
 ADMIN_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
@@ -41,7 +38,6 @@ def hash_senha(senha):
 def carregar_json(arquivo):
     if not os.path.exists(arquivo):
         return {}
-
     try:
         with open(arquivo, "r", encoding="utf-8") as f:
             dados = json.load(f)
@@ -114,7 +110,7 @@ def tela_cadastro():
         }
 
         salvar_json(USUARIOS_FILE, usuarios)
-        st.success("Cadastro realizado. Aguarde aprovação do administrador.")
+        st.success("Cadastro realizado. Aguarde aprovação.")
 
 def painel_admin():
     st.title("👑 Painel do Administrador")
@@ -141,14 +137,35 @@ def painel_usuario():
     st.title("📊 Controle de Despesas")
 
     usuario = st.session_state.usuario
-
     despesas = carregar_json(DESPESAS_FILE)
 
-    # 🔒 GARANTIA ABSOLUTA DE ESTRUTURA
     if usuario not in despesas:
         despesas[usuario] = []
         salvar_json(DESPESAS_FILE, despesas)
 
+    # =============================
+    # FILTROS
+    # =============================
+    df = pd.DataFrame(despesas[usuario])
+
+    if not df.empty:
+        df["data"] = pd.to_datetime(df["data"])
+        df["ano"] = df["data"].dt.year
+        df["mes"] = df["data"].dt.month
+
+        ano_sel = st.selectbox("Ano", sorted(df["ano"].unique(), reverse=True))
+        mes_sel = st.selectbox(
+            "Mês",
+            sorted(df[df["ano"] == ano_sel]["mes"].unique())
+        )
+
+        df_filtro = df[(df["ano"] == ano_sel) & (df["mes"] == mes_sel)]
+    else:
+        df_filtro = df
+
+    # =============================
+    # NOVA DESPESA
+    # =============================
     with st.form("nova_despesa"):
         descricao = st.text_input("Descrição")
         valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
@@ -164,16 +181,27 @@ def painel_usuario():
             st.success("Despesa adicionada")
             st.rerun()
 
-    if despesas[usuario]:
-        df = pd.DataFrame(despesas[usuario])
-        df["data"] = pd.to_datetime(df["data"])
-        df["mes"] = df["data"].dt.to_period("M").astype(str)
+    # =============================
+    # DASHBOARD
+    # =============================
+    if not df_filtro.empty:
+        st.subheader("📈 Total do mês")
+        st.metric("R$", f"{df_filtro['valor'].sum():.2f}")
 
-        st.subheader("📈 Dashboard Mensal")
-        st.bar_chart(df.groupby("mes")["valor"].sum())
+        st.subheader("📊 Gráfico")
+        st.bar_chart(df_filtro.groupby("descricao")["valor"].sum())
 
         st.subheader("📋 Despesas")
-        st.dataframe(df)
+        for i, row in df_filtro.iterrows():
+            col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+            col1.write(row["descricao"])
+            col2.write(f"R$ {row['valor']:.2f}")
+            col3.write(row["data"].strftime("%d/%m/%Y"))
+
+            if col4.button("❌", key=f"del_{i}"):
+                despesas[usuario].pop(i)
+                salvar_json(DESPESAS_FILE, despesas)
+                st.rerun()
 
 # =============================
 # CONTROLE DE SESSÃO
